@@ -1,0 +1,138 @@
+[
+  {
+    "question_id": "q_001",
+    "question_text": "What is the difference between a Python list and a tuple? In what situations would you prefer a tuple over a list?",
+    "topic": "Python Data Structures",
+    "difficulty": "easy",
+    "expected_concepts": [
+      "list is mutable",
+      "tuple is immutable",
+      "syntax differences",
+      "memory efficiency",
+      "use for fixed data"
+    ],
+    "question_type": "conceptual"
+  },
+  {
+    "question_id": "q_002",
+    "question_text": "Explain how an if-elif-else statement works in Python. What happens when multiple conditions evaluate to True?",
+    "topic": "Control Flow",
+    "difficulty": "easy",
+    "expected_concepts": [
+      "top-down evaluation",
+      "first matching condition executes",
+      "elif chaining",
+      "else as fallback"
+    ],
+    "question_type": "conceptual"
+  },
+  {
+    "question_id": "q_003",
+    "question_text": "What is the output of the following code?\n\nnumbers = [1, 2, 3, 4, 5]\nresult = [x * 2 for x in numbers if x % 2 == 1]\nprint(result)",
+    "topic": "List Comprehensions",
+    "difficulty": "easy",
+    "expected_concepts": [
+      "filter odd numbers",
+      "list comprehension",
+      "multiplication by 2",
+      "output list [2, 6, 10]"
+    ],
+    "question_type": "calculation"
+  },
+  {
+    "question_id": "q_004",
+    "question_text": "What is variable scope in Python? Explain the difference between local and global variables with an example.",
+    "topic": "Functions and Scope",
+    "difficulty": "medium",
+    "expected_concepts": [
+      "local scope",
+      "global scope",
+      "function boundaries",
+      "variable visibility",
+      "global keyword"
+    ],
+    "question_type": "conceptual"
+  },
+  {
+    "question_id": "q_005",
+    "question_text": "How do Python dictionaries store data? Why are dictionaries generally efficient for key-based lookups?",
+    "topic": "Dictionaries",
+    "difficulty": "medium",
+    "expected_concepts": [
+      "key-value pairs",
+      "unique keys",
+      "hash table",
+      "fast lookup",
+      "dictionary access"
+    ],
+    "question_type": "conceptual"
+  },
+  {
+    "question_id": "q_006",
+    "question_text": "What is the output of the following code?\n\ndef func(x=[]):\n    x.append(1)\n    return x\n\nprint(func())\nprint(func())",
+    "topic": "Functions and Scope",
+    "difficulty": "medium",
+    "expected_concepts": [
+      "mutable default argument",
+      "same list reused",
+      "function calls",
+      "outputs [1] then [1, 1]"
+    ],
+    "question_type": "calculation"
+  },
+  {
+    "question_id": "q_007",
+    "question_text": "Explain the purpose of try, except, else, and finally blocks in Python exception handling.",
+    "topic": "Error Handling",
+    "difficulty": "medium",
+    "expected_concepts": [
+      "exception catching",
+      "try block",
+      "except block",
+      "else block",
+      "finally always executes"
+    ],
+    "question_type": "conceptual"
+  },
+  {
+    "question_id": "q_008",
+    "question_text": "What is inheritance in object-oriented programming? How does it promote code reuse in Python?",
+    "topic": "Python OOP",
+    "difficulty": "hard",
+    "expected_concepts": [
+      "parent class",
+      "child class",
+      "inherits attributes",
+      "inherits methods",
+      "code reuse"
+    ],
+    "question_type": "conceptual"
+  },
+  {
+    "question_id": "q_009",
+    "question_text": "What is the output of the following code?\n\nclass A:\n    def show(self):\n        return 'A'\n\nclass B(A):\n    def show(self):\n        return 'B'\n\nobj = B()\nprint(obj.show())",
+    "topic": "Python OOP",
+    "difficulty": "hard",
+    "expected_concepts": [
+      "inheritance",
+      "method overriding",
+      "runtime method resolution",
+      "output B"
+    ],
+    "question_type": "calculation"
+  },
+  {
+    "question_id": "q_010",
+    "question_text": "Describe three useful modules from Python's standard library that are relevant to data science workflows. Explain a practical use case for each.",
+    "topic": "Python Standard Library",
+    "difficulty": "hard",
+    "expected_concepts": [
+      "collections module",
+      "itertools module",
+      "statistics module",
+      "practical applications",
+      "built-in functionality"
+    ],
+    "question_type": "conceptual"
+  }
+]
