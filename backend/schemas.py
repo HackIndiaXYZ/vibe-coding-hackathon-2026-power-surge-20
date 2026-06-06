@@ -10,3 +10,8 @@ class Question(BaseModel):
     difficulty: Literal["easy", "medium", "hard"]
     expected_concepts: list[str]
     question_type: Literal["conceptual", "calculation"]
+
+
+class GenerateQuestionRequest(BaseModel):
+    session_id: str
+    difficulty: Literal["easy", "medium", "hard"]
