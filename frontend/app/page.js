@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 async function mockUploadNotes(file) {
   const formData = new FormData();
@@ -98,6 +98,25 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const streamRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   function speakText(text) {
     if (typeof window === "undefined" || !text) {
@@ -220,12 +239,124 @@ export default function Home() {
     }
   }
 
+  async function handleTranscribe() {
+    setIsTranscribing(true);
+    setEvaluationError("");
+
+    try {
+      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const formData = new FormData();
+      formData.append("file", audioBlob, "recording.webm");
+
+      const response = await fetch("http://localhost:8000/transcribe-audio", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        setEvaluationError(
+          "Could not transcribe. Please try again or type your answer."
+        );
+        return;
+      }
+
+      const data = await response.json();
+      setAnswerText(data.transcription);
+    } catch {
+      setEvaluationError(
+        "Could not transcribe. Please try again or type your answer."
+      );
+    } finally {
+      setIsTranscribing(false);
+    }
+  }
+
+  async function handleRecordToggle() {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      setIsRecording(false);
+      return;
+    }
+
+    if (
+      typeof window === "undefined" ||
+      typeof MediaRecorder === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      setEvaluationError(
+        "Microphone access denied. Please allow mic permission or type your answer."
+      );
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const recorderOptions = MediaRecorder.isTypeSupported("audio/webm")
+        ? { mimeType: "audio/webm" }
+        : undefined;
+      const mediaRecorder = recorderOptions
+        ? new MediaRecorder(stream, recorderOptions)
+        : new MediaRecorder(stream);
+
+      audioChunksRef.current = [];
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      mediaRecorder.onstop = () => {
+        void handleTranscribe();
+      };
+
+      mediaRecorder.start();
+      setEvaluationError("");
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((currentSeconds) => currentSeconds + 1);
+      }, 1000);
+    } catch {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      setEvaluationError(
+        "Microphone access denied. Please allow mic permission or type your answer."
+      );
+    }
+  }
+
   const previewText = uploadResult?.preview
     ? uploadResult.preview.slice(0, 200)
     : "";
   const trimmedAnswerLength = answerText.trim().length;
   const canSubmitAnswer =
-    !!questionResult?.question_id && trimmedAnswerLength >= 10 && !isEvaluating;
+    !!questionResult?.question_id &&
+    trimmedAnswerLength >= 10 &&
+    !isEvaluating &&
+    !isRecording &&
+    !isTranscribing;
+  const formattedRecordingTime = `${Math.floor(recordingSeconds / 60)}:${String(
+    recordingSeconds % 60
+  ).padStart(2, "0")}`;
+  const recordingStatusText = isTranscribing
+    ? "Transcribing..."
+    : isRecording
+      ? `Recording... ${formattedRecordingTime}`
+      : questionResult?.question_id
+        ? "Click record and speak your answer"
+        : "";
   const scoreCardStyles =
     evaluationResult?.score != null
       ? evaluationResult.score < 4
@@ -619,6 +750,61 @@ export default function Home() {
             <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>
               Write your answer, then submit it for mocked evaluation feedback.
             </p>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleRecordToggle}
+              disabled={isTranscribing}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "12px 18px",
+                borderRadius: 12,
+                border: "none",
+                fontSize: 16,
+                fontWeight: 700,
+                cursor: isTranscribing ? "not-allowed" : "pointer",
+                background: isRecording ? "#dc2626" : "#d97706",
+                color: "#ffffff",
+                opacity: isTranscribing ? 0.7 : 1,
+              }}
+            >
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  background: "#ffffff",
+                  opacity: isRecording ? 1 : 0.85,
+                  boxShadow: isRecording
+                    ? "0 0 0 6px rgba(255, 255, 255, 0.18)"
+                    : "none",
+                  transition: "box-shadow 0.3s ease, opacity 0.3s ease",
+                }}
+              />
+              {isRecording ? "⏹️ Stop" : "🎙️ Record"}
+            </button>
+            <span
+              style={{
+                minHeight: 24,
+                fontSize: 14,
+                color: isRecording ? "#b91c1c" : "#6b7280",
+                fontWeight: isRecording || isTranscribing ? 600 : 500,
+              }}
+            >
+              {recordingStatusText}
+            </span>
           </div>
 
           <label style={{ display: "grid", gap: 8, fontWeight: 600 }}>
