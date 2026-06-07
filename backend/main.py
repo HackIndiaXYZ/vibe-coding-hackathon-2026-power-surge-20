@@ -1,6 +1,7 @@
 import random
 import re
 import uuid
+from collections import Counter
 
 import ollama
 import pypdfium2 as pdfium
@@ -30,6 +31,34 @@ _USER_PROMPT = (
 )
 
 _CODE_PATTERNS = ["def ", "print(", "class ", "for ", "[", "="]
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "how",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "using",
+    "what",
+    "when",
+    "which",
+    "with",
+}
 
 
 def _sample_chunk(notes: str, target: int = 1500) -> str:
@@ -45,6 +74,38 @@ def _detect_question_type(chunk: str) -> str:
     if any(p in chunk for p in _CODE_PATTERNS):
         return random.choice(["conceptual", "calculation"])
     return "conceptual"
+
+
+def _extract_expected_concepts(text: str, limit: int = 5) -> list[str]:
+    words = re.findall(r"[A-Za-z][A-Za-z0-9_-]+", text.lower())
+    counts = Counter(word for word in words if len(word) > 3 and word not in _STOPWORDS)
+    concepts = [word for word, _ in counts.most_common(limit)]
+    return concepts or ["main idea", "key detail", "supporting example"]
+
+
+def _fallback_question(notes: str, difficulty: str, question_type: str) -> Question:
+    chunk = _sample_chunk(notes, target=400).strip()
+    lines = [line.strip(" -\t") for line in chunk.splitlines() if line.strip()]
+    topic = lines[0][:80].rstrip(".,:;") if lines else "Uploaded notes"
+
+    if question_type == "calculation":
+        question_text = (
+            "Walk through the following material step by step and explain the result: "
+            f"{chunk[:220]}"
+        )
+    else:
+        question_text = (
+            f"Explain the main idea behind '{topic}' using evidence from the uploaded notes."
+        )
+
+    return Question(
+        question_id=f"q_fallback_{uuid.uuid4().hex[:8]}",
+        question_text=question_text,
+        topic=topic,
+        difficulty=difficulty,
+        expected_concepts=_extract_expected_concepts(chunk),
+        question_type=question_type,
+    )
 
 app = FastAPI()
 
@@ -113,8 +174,6 @@ def generate_question(body: GenerateQuestionRequest):
             ],
             format=Question.model_json_schema(),
         )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Ollama error: {e}")
-
-    question = Question.model_validate_json(response.message.content)
-    return question
+        return Question.model_validate_json(response.message.content)
+    except Exception:
+        return _fallback_question(notes, body.difficulty, question_type)

@@ -2,32 +2,38 @@
 import { useState } from "react";
 
 async function mockUploadNotes(file) {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  const formData = new FormData();
+  formData.append("file", file);
 
-  return {
-    session_id: "mock-session-abc123",
-    char_count: 5432,
-    preview:
-      "In Python, variables are containers for storing data values. Unlike some other programming languages, Python has no command for declaring a variable. A variable is created the moment you first assign a value to it...",
-  };
+  const response = await fetch("http://localhost:8000/upload-notes", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to upload notes. Please try again.");
+  }
+
+  return response.json();
 }
 
 async function mockGenerateQuestion(session_id) {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  const response = await fetch("http://localhost:8000/generate-question", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      session_id: session_id,
+      difficulty: "easy",
+    }),
+  });
 
-  return {
-    question_id: "q_001",
-    question_text:
-      "What is the difference between a Python list and a tuple? In what situations would you prefer a tuple over a list?",
-    topic: "Python Data Structures",
-    difficulty: "easy",
-    expected_concepts: [
-      "list is mutable",
-      "tuple is immutable",
-      "syntax differences",
-    ],
-    question_type: "conceptual",
-  };
+  if (!response.ok) {
+    throw new Error("Unable to generate a question. Please try again.");
+  }
+
+  return response.json();
 }
 
 async function uploadNotes(file) {
