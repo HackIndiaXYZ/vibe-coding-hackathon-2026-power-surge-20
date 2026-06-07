@@ -8,7 +8,7 @@ import pypdfium2 as pdfium
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from schemas import GenerateQuestionRequest, Question
+from schemas import EvaluateAnswerRequest, Evaluation, GenerateQuestionRequest, Question
 
 notes_store: dict[str, str] = {}
 
@@ -28,6 +28,26 @@ _USER_PROMPT = (
     "Suggested question_type: {question_type}\n\n"
     "Study material:\n{chunk}\n\n"
     "Generate one exam question as valid JSON matching the Question schema."
+)
+
+_EVAL_SYSTEM_PROMPT = (
+    "You are a fair, careful examiner grading an oral viva answer. "
+    "Your job is to evaluate whether the student's spoken answer demonstrates understanding of the expected concepts. "
+    "Be strict about reasoning errors and factual mistakes, but lenient about minor wording differences — students paraphrase. "
+    "Award full marks (8-10) only when most expected concepts are clearly addressed with correct reasoning. "
+    "Award middle marks (4-7) for partial understanding. "
+    "Award low marks (0-3) for answers that are vague, mostly wrong, or miss the main concepts. "
+    "For 'concepts_covered', list only the expected_concepts strings (verbatim) that the student clearly addressed. "
+    "For 'concepts_missed', list expected_concepts strings the student did NOT address. "
+    "Set 'needs_followup' to true when score is below 7 AND there are unmissed concepts worth probing. "
+    "The 'followup_hint' should be a single concise spoken question that probes one specific gap — not a list of things to study."
+)
+
+_EVAL_USER_PROMPT = (
+    "Question asked: {question_text}\n\n"
+    "Expected concepts for full marks: {expected_concepts}\n\n"
+    "Student's answer: {student_answer}\n\n"
+    "Evaluate the student's answer as valid JSON matching the Evaluation schema."
 )
 
 _CODE_PATTERNS = ["def ", "print(", "class ", "for ", "[", "="]
@@ -177,3 +197,37 @@ def generate_question(body: GenerateQuestionRequest):
         return Question.model_validate_json(response.message.content)
     except Exception:
         return _fallback_question(notes, body.difficulty, question_type)
+
+
+@app.post("/evaluate-answer", response_model=Evaluation)
+def evaluate_answer(body: EvaluateAnswerRequest):
+    user_msg = _EVAL_USER_PROMPT.format(
+        question_text=body.question_text,
+        expected_concepts=body.expected_concepts,
+        student_answer=body.student_answer,
+    )
+    client = ollama.Client(timeout=60.0)
+    try:
+        response = client.chat(
+            model="phi4-mini",
+            messages=[
+                {"role": "system", "content": _EVAL_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            format=Evaluation.model_json_schema(),
+            options={"temperature": 0.3},
+        )
+        result = Evaluation.model_validate_json(response.message.content)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Ollama error.")
+
+    result.concepts_covered = [
+        c for c in (c.strip() for c in result.concepts_covered) if len(c) >= 3
+    ]
+    result.concepts_missed = [
+        c for c in (c.strip() for c in result.concepts_missed) if len(c) >= 3
+    ]
+    if not result.needs_followup:
+        result.followup_hint = ""
+
+    return result
