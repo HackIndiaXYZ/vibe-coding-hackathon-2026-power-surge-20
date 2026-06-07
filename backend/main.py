@@ -1,14 +1,19 @@
+import os
 import random
 import re
+import tempfile
 import uuid
 from collections import Counter
 
 import ollama
 import pypdfium2 as pdfium
+from faster_whisper import WhisperModel
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from schemas import EvaluateAnswerRequest, Evaluation, GenerateQuestionRequest, Question
+
+_whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
 
 notes_store: dict[str, str] = {}
 
@@ -231,3 +236,26 @@ def evaluate_answer(body: EvaluateAnswerRequest):
         result.followup_hint = ""
 
     return result
+
+
+@app.post("/transcribe-audio")
+def transcribe_audio(file: UploadFile = File(...)):
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+            tmp.write(file.file.read())
+            tmp_path = tmp.name
+
+        try:
+            segments, info = _whisper_model.transcribe(tmp_path, beam_size=5, language="en")
+            transcription = " ".join(seg.text for seg in segments).strip()
+        except Exception:
+            raise HTTPException(status_code=502, detail="Whisper error.")
+    finally:
+        if tmp_path:
+            os.remove(tmp_path)
+
+    if not transcription:
+        raise HTTPException(status_code=400, detail="No speech detected.")
+
+    return {"transcription": transcription, "duration_seconds": info.duration}

@@ -3,3 +3,4 @@ uvicorn[standard]
 pypdfium2
 python-multipart
 ollama
+faster-whisper
