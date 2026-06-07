@@ -36,6 +36,32 @@ async function mockGenerateQuestion(session_id) {
   return response.json();
 }
 
+async function mockEvaluateAnswer(
+  question_id,
+  answer_text,
+  question_text,
+  expected_concepts
+) {
+  const response = await fetch("http://localhost:8000/evaluate-answer", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      question_id,
+      question_text,
+      expected_concepts,
+      student_answer: answer_text,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to evaluate your answer. Please try again.");
+  }
+
+  return response.json();
+}
+
 async function uploadNotes(file) {
   return mockUploadNotes(file);
 }
@@ -44,22 +70,43 @@ async function generateQuestion(sessionId) {
   return mockGenerateQuestion(sessionId);
 }
 
+async function evaluateAnswer(
+  questionId,
+  answerText,
+  questionText,
+  expectedConcepts
+) {
+  return mockEvaluateAnswer(
+    questionId,
+    answerText,
+    questionText,
+    expectedConcepts
+  );
+}
+
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadResult, setUploadResult] = useState(null);
   const [questionResult, setQuestionResult] = useState(null);
+  const [answerText, setAnswerText] = useState("");
+  const [evaluationResult, setEvaluationResult] = useState(null);
   const [uploadError, setUploadError] = useState("");
   const [questionError, setQuestionError] = useState("");
+  const [evaluationError, setEvaluationError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEvaluating, setIsEvaluating] = useState(false);
 
   function handleFileChange(event) {
     const file = event.target.files?.[0] ?? null;
     setSelectedFile(file);
     setUploadError("");
     setQuestionError("");
+    setEvaluationError("");
     setUploadResult(null);
     setQuestionResult(null);
+    setAnswerText("");
+    setEvaluationResult(null);
   }
 
   async function handleUpload() {
@@ -70,8 +117,11 @@ export default function Home() {
     setIsUploading(true);
     setUploadError("");
     setQuestionError("");
+    setEvaluationError("");
     setUploadResult(null);
     setQuestionResult(null);
+    setAnswerText("");
+    setEvaluationResult(null);
 
     try {
       const result = await uploadNotes(selectedFile);
@@ -95,6 +145,9 @@ export default function Home() {
     setIsGenerating(true);
     setQuestionError("");
     setQuestionResult(null);
+    setEvaluationError("");
+    setAnswerText("");
+    setEvaluationResult(null);
 
     try {
       const result = await generateQuestion(uploadResult.session_id);
@@ -110,9 +163,60 @@ export default function Home() {
     }
   }
 
+  async function handleEvaluateAnswer() {
+    if (!questionResult?.question_id) {
+      return;
+    }
+
+    setIsEvaluating(true);
+    setEvaluationError("");
+    setEvaluationResult(null);
+
+    try {
+      const result = await evaluateAnswer(
+        questionResult.question_id,
+        answerText,
+        questionResult.question_text,
+        questionResult.expected_concepts
+      );
+      setEvaluationResult(result);
+    } catch (error) {
+      setEvaluationError(
+        error instanceof Error
+          ? error.message
+          : "Unable to evaluate your answer. Please try again."
+      );
+    } finally {
+      setIsEvaluating(false);
+    }
+  }
+
   const previewText = uploadResult?.preview
     ? uploadResult.preview.slice(0, 200)
     : "";
+  const trimmedAnswerLength = answerText.trim().length;
+  const canSubmitAnswer =
+    !!questionResult?.question_id && trimmedAnswerLength >= 10 && !isEvaluating;
+  const scoreCardStyles =
+    evaluationResult?.score != null
+      ? evaluationResult.score < 4
+        ? {
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#b91c1c",
+          }
+        : evaluationResult.score < 8
+          ? {
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              color: "#b45309",
+            }
+          : {
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              color: "#166534",
+            }
+      : null;
 
   return (
     <main
@@ -383,6 +487,181 @@ export default function Home() {
               >
                 {questionResult.question_text}
               </p>
+            </div>
+          ) : null}
+        </section>
+
+        <section
+          style={{
+            background: "#ffffff",
+            border: "1px solid #dbe3f0",
+            borderRadius: 16,
+            padding: 24,
+            display: "grid",
+            gap: 16,
+          }}
+        >
+          <div style={{ display: "grid", gap: 6 }}>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "#2563eb",
+              }}
+            >
+              Stage 3
+            </span>
+            <h2 style={{ margin: 0, fontSize: "1.35rem" }}>
+              Answer evaluation
+            </h2>
+            <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>
+              Write your answer, then submit it for mocked evaluation feedback.
+            </p>
+          </div>
+
+          <label style={{ display: "grid", gap: 8, fontWeight: 600 }}>
+            <span>Your answer</span>
+            <textarea
+              rows={6}
+              placeholder="Type your answer here..."
+              value={answerText}
+              onChange={(event) => setAnswerText(event.target.value)}
+              style={{
+                width: "100%",
+                padding: 12,
+                border: "1px solid #cbd5e1",
+                borderRadius: 10,
+                background: "#ffffff",
+                color: "#111827",
+                resize: "vertical",
+                font: "inherit",
+                boxSizing: "border-box",
+              }}
+            />
+          </label>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            <button
+              type="button"
+              onClick={handleEvaluateAnswer}
+              disabled={!canSubmitAnswer}
+              style={{
+                padding: "12px 18px",
+                border: "none",
+                borderRadius: 10,
+                background: canSubmitAnswer ? "#d97706" : "#94a3b8",
+                color: "#ffffff",
+                fontWeight: 700,
+                cursor: canSubmitAnswer ? "pointer" : "not-allowed",
+              }}
+            >
+              {isEvaluating ? "Evaluating..." : "Submit answer"}
+            </button>
+          </div>
+
+          {evaluationError ? (
+            <div
+              style={{
+                padding: 14,
+                borderRadius: 10,
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#b91c1c",
+              }}
+            >
+              {evaluationError}
+            </div>
+          ) : null}
+
+          {evaluationResult && scoreCardStyles ? (
+            <div
+              style={{
+                display: "grid",
+                gap: 16,
+                padding: 20,
+                borderRadius: 12,
+                background: "#f8fafc",
+                border: "1px solid #dbe3f0",
+              }}
+            >
+              <div
+                style={{
+                  ...scoreCardStyles,
+                  padding: 18,
+                  borderRadius: 12,
+                  display: "grid",
+                  gap: 8,
+                }}
+              >
+                <strong style={{ fontSize: "2rem", lineHeight: 1 }}>
+                  {evaluationResult.score}/10
+                </strong>
+                <p style={{ margin: 0, lineHeight: 1.6 }}>
+                  {evaluationResult.feedback}
+                </p>
+              </div>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                <span style={{ fontWeight: 600, color: "#166534" }}>
+                  Concepts covered
+                </span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {evaluationResult.concepts_covered.map((concept) => (
+                    <span
+                      key={concept}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        background: "#dcfce7",
+                        color: "#166534",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {concept}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                <span style={{ fontWeight: 600, color: "#b91c1c" }}>
+                  Concepts missed
+                </span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {evaluationResult.concepts_missed.map((concept) => (
+                    <span
+                      key={concept}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        background: "#fee2e2",
+                        color: "#b91c1c",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {concept}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {evaluationResult.needs_followup ? (
+                <div
+                  style={{
+                    padding: 14,
+                    borderRadius: 10,
+                    background: "#fffbeb",
+                    border: "1px solid #fde68a",
+                    color: "#b45309",
+                  }}
+                >
+                  {evaluationResult.followup_hint}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </section>
