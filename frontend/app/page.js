@@ -90,12 +90,38 @@ export default function Home() {
   const [questionResult, setQuestionResult] = useState(null);
   const [answerText, setAnswerText] = useState("");
   const [evaluationResult, setEvaluationResult] = useState(null);
+  const [autoPlay, setAutoPlay] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [questionError, setQuestionError] = useState("");
   const [evaluationError, setEvaluationError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+
+  function speakText(text) {
+    if (typeof window === "undefined" || !text) {
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function stopSpeaking() {
+    if (typeof window !== "undefined") {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+  }
 
   function handleFileChange(event) {
     const file = event.target.files?.[0] ?? null;
@@ -152,6 +178,9 @@ export default function Home() {
     try {
       const result = await generateQuestion(uploadResult.session_id);
       setQuestionResult(result);
+      if (autoPlay) {
+        speakText(result.question_text);
+      }
     } catch (error) {
       setQuestionError(
         error instanceof Error
@@ -395,6 +424,77 @@ export default function Home() {
               Generate one viva-style question using the uploaded notes session.
             </p>
           </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 12,
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 14px",
+                  borderRadius: 999,
+                  border: "1px solid #cbd5e1",
+                  background: "#f8fafc",
+                  color: "#0f172a",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={autoPlay}
+                  onChange={(e) => setAutoPlay(e.target.checked)}
+                  style={{ margin: 0 }}
+                />
+                <span>Auto-play questions</span>
+              </label>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                {questionResult && !isSpeaking ? (
+                  <button
+                    type="button"
+                    onClick={() => speakText(questionResult.question_text)}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 999,
+                      border: "1px solid #99f6e4",
+                      background: "#ccfbf1",
+                      color: "#115e59",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    🔊 Listen
+                  </button>
+                ) : null}
+
+                {isSpeaking ? (
+                  <button
+                    type="button"
+                    onClick={stopSpeaking}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 999,
+                      border: "1px solid #fecaca",
+                      background: "#fef2f2",
+                      color: "#b91c1c",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ⏹ Stop
+                  </button>
+                ) : null}
+              </div>
+            </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
             <button
