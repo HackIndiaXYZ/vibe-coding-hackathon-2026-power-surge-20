@@ -18,22 +18,37 @@ _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
 notes_store: dict[str, str] = {}
 
 _SYSTEM_PROMPT = (
-    "You are a fair university examiner conducting an oral viva exam. "
-    "Generate exactly ONE exam question grounded STRICTLY in the provided study material "
-    "— do not introduce outside concepts. The question must be answerable verbally in a "
-    "spoken exam, so never instruct the student to 'write code', 'draw', or 'show on paper'. "
-    "For calculation questions on programming material, this means code-tracing where the "
-    "student says what the output is. For 'expected_concepts', list 3-5 short concrete strings "
-    "— the specific things a student must mention for full marks, not vague labels like "
-    "'concept_1'. Generate a unique question_id like 'q_gen_xxx' where xxx is random."
+    "You are a fair university examiner generating ONE oral viva exam question. "
+    "Ground the question STRICTLY in the provided study material — do not introduce outside concepts. "
+    "The question must be answerable verbally in a spoken exam, so never instruct the student to 'write code', 'draw', or 'show on paper'. "
+    "\n\n"
+    "QUESTION_TYPE RULES (critical):\n"
+    "- Use 'calculation' ONLY if the question asks for a specific numeric output, code-trace result, or step-by-step computation that has one correct answer.\n"
+    "- Use 'conceptual' for anything asking the student to explain, compare, define, justify, or describe a concept — even if the material contains code.\n"
+    "- The suggested question_type is a hint; override it if the question you generated is clearly the other type.\n"
+    "\n"
+    "DIFFICULTY CALIBRATION (critical — make difficulty levels genuinely different):\n"
+    "- 'easy': single-concept questions, definitions or simple identification, answerable in 1-2 sentences.\n"
+    "- 'medium': requires comparing two concepts, explaining a process, or applying knowledge to a scenario.\n"
+    "- 'hard': requires synthesis across multiple concepts, evaluation of tradeoffs, edge cases, or reasoning about subtle behavior.\n"
+    "\n"
+    "EXPECTED_CONCEPTS RULES:\n"
+    "- List 3-5 short concrete strings — the specific things a student must mention for full marks.\n"
+    "- Each concept must be a non-empty, meaningful phrase (at least 3 words OR a specific term/formula).\n"
+    "- Never include empty strings, placeholders, or vague labels like 'concept_1'.\n"
+    "\n"
+    "Generate a unique question_id like 'q_gen_xxx' where xxx is random."
 )
 
 _USER_PROMPT = (
-    "Difficulty: {difficulty}\n"
+    "REQUESTED DIFFICULTY: {difficulty}\n"
+    "Your question MUST genuinely match this difficulty level. Re-read the difficulty calibration rules.\n\n"
     "Suggested question_type: {question_type}\n\n"
     "Study material:\n{chunk}\n\n"
-    "Generate one exam question as valid JSON matching the Question schema."
-)
+    "Generate ONE exam question at the {difficulty} difficulty level as valid JSON matching the Question schema. "
+    "Before responding, self-check: does your question genuinely match the requested {difficulty} difficulty? "
+    "If not, rewrite it harder or easier." )
+
 
 _EVAL_SYSTEM_PROMPT = (
     "You are a fair, careful examiner grading an oral viva answer. "
