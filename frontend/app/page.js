@@ -88,6 +88,9 @@ export default function Home() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadResult, setUploadResult] = useState(null);
   const [questionResult, setQuestionResult] = useState(null);
+  const [pendingFollowup, setPendingFollowup] = useState(null);
+  const [isCurrentQuestionFollowup, setIsCurrentQuestionFollowup] =
+    useState(false);
   const [answerText, setAnswerText] = useState("");
   const [evaluationResult, setEvaluationResult] = useState(null);
   const [autoPlay, setAutoPlay] = useState(true);
@@ -150,6 +153,8 @@ export default function Home() {
     setEvaluationError("");
     setUploadResult(null);
     setQuestionResult(null);
+    setPendingFollowup(null);
+    setIsCurrentQuestionFollowup(false);
     setAnswerText("");
     setEvaluationResult(null);
   }
@@ -165,6 +170,8 @@ export default function Home() {
     setEvaluationError("");
     setUploadResult(null);
     setQuestionResult(null);
+    setPendingFollowup(null);
+    setIsCurrentQuestionFollowup(false);
     setAnswerText("");
     setEvaluationResult(null);
 
@@ -187,9 +194,36 @@ export default function Home() {
       return;
     }
 
+    if (pendingFollowup) {
+      const followupQuestion = {
+        question_id: `followup_${Date.now()}`,
+        question_text: pendingFollowup.hint,
+        topic: `${pendingFollowup.parent_topic} (follow-up)`,
+        difficulty: pendingFollowup.parent_difficulty,
+        expected_concepts: questionResult?.expected_concepts ?? [],
+        question_type: "conceptual",
+      };
+
+      setQuestionError("");
+      setQuestionResult(followupQuestion);
+      setIsCurrentQuestionFollowup(true);
+      setPendingFollowup(null);
+      setAnswerText("");
+      setEvaluationResult(null);
+      setEvaluationError("");
+
+      if (autoPlay) {
+        speakText(followupQuestion.question_text);
+      }
+
+      return;
+    }
+
     setIsGenerating(true);
     setQuestionError("");
     setQuestionResult(null);
+    setPendingFollowup(null);
+    setIsCurrentQuestionFollowup(false);
     setEvaluationError("");
     setAnswerText("");
     setEvaluationResult(null);
@@ -197,6 +231,7 @@ export default function Home() {
     try {
       const result = await generateQuestion(uploadResult.session_id);
       setQuestionResult(result);
+      setIsCurrentQuestionFollowup(false);
       if (autoPlay) {
         speakText(result.question_text);
       }
@@ -228,6 +263,18 @@ export default function Home() {
         questionResult.expected_concepts
       );
       setEvaluationResult(result);
+
+      if (isCurrentQuestionFollowup) {
+        setPendingFollowup(null);
+      } else if (result.needs_followup === true && result.followup_hint) {
+        setPendingFollowup({
+          hint: result.followup_hint,
+          parent_topic: questionResult.topic,
+          parent_difficulty: questionResult.difficulty,
+        });
+      } else {
+        setPendingFollowup(null);
+      }
     } catch (error) {
       setEvaluationError(
         error instanceof Error
@@ -357,6 +404,18 @@ export default function Home() {
       : questionResult?.question_id
         ? "Click record and speak your answer"
         : "";
+  const generateButtonLabel = isGenerating
+    ? "Generating..."
+    : pendingFollowup
+      ? "🔁 Ask follow-up question"
+      : questionResult
+        ? "Next question"
+        : "Generate question";
+  const generateButtonBackground = !uploadResult?.session_id || isGenerating
+    ? "#94a3b8"
+    : pendingFollowup
+      ? "linear-gradient(135deg, #7c3aed, #ea580c)"
+      : "#0f766e";
   const scoreCardStyles =
     evaluationResult?.score != null
       ? evaluationResult.score < 4
@@ -636,17 +695,19 @@ export default function Home() {
                 padding: "12px 18px",
                 border: "none",
                 borderRadius: 10,
-                background:
-                  !uploadResult?.session_id || isGenerating ? "#94a3b8" : "#0f766e",
+                background: generateButtonBackground,
                 color: "#ffffff",
                 fontWeight: 700,
+                boxShadow: pendingFollowup
+                  ? "0 10px 24px rgba(124, 58, 237, 0.22)"
+                  : "none",
                 cursor:
                   !uploadResult?.session_id || isGenerating
                     ? "not-allowed"
                     : "pointer",
               }}
             >
-              {isGenerating ? "Generating..." : "Generate question"}
+              {generateButtonLabel}
             </button>
           </div>
 
@@ -675,6 +736,21 @@ export default function Home() {
                 border: "1px solid #dbe3f0",
               }}
             >
+              {isCurrentQuestionFollowup ? (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "#fef3c7",
+                    border: "1px solid #fcd34d",
+                    color: "#92400e",
+                    fontSize: 14,
+                    fontWeight: 600,
+                  }}
+                >
+                  Follow-up question — probing your previous answer.
+                </div>
+              ) : null}
               <div
                 style={{
                   display: "flex",
