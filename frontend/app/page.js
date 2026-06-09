@@ -62,6 +62,100 @@ async function mockEvaluateAnswer(
   return response.json();
 }
 
+async function generateSessionSummary(evaluations, weakTopics, topicsToRevise) {
+  const response = await fetch("http://localhost:8000/session-summary", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      evaluations,
+      weak_topics: weakTopics,
+      topics_to_revise: topicsToRevise,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Unable to generate the session summary. Please try again.");
+  }
+
+  return response.json();
+}
+
+function getScoreCardStyles(score) {
+  if (score == null) {
+    return null;
+  }
+
+  if (score < 4) {
+    return {
+      background: "#fef2f2",
+      border: "1px solid #fecaca",
+      color: "#b91c1c",
+    };
+  }
+
+  if (score < 8) {
+    return {
+      background: "#fffbeb",
+      border: "1px solid #fde68a",
+      color: "#b45309",
+    };
+  }
+
+  return {
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    color: "#166534",
+  };
+}
+
+function buildReportCard(evaluations, recommendations = []) {
+  const topicStats = evaluations.reduce((accumulator, evaluation) => {
+    const currentTopic = accumulator[evaluation.topic] ?? {
+      totalScore: 0,
+      count: 0,
+    };
+
+    currentTopic.totalScore += evaluation.score;
+    currentTopic.count += 1;
+    accumulator[evaluation.topic] = currentTopic;
+
+    return accumulator;
+  }, {});
+
+  const strongTopics = [];
+  const topicsToRevise = [];
+  const weakTopics = [];
+
+  Object.entries(topicStats).forEach(([topic, stats]) => {
+    const averageScore = stats.totalScore / stats.count;
+
+    if (averageScore >= 7) {
+      strongTopics.push(topic);
+    } else if (averageScore >= 5) {
+      topicsToRevise.push(topic);
+    } else {
+      weakTopics.push(topic);
+    }
+  });
+
+  const totalScore = evaluations.reduce(
+    (sum, evaluation) => sum + evaluation.score,
+    0
+  );
+
+  return {
+    total_questions: evaluations.length,
+    average_score:
+      evaluations.length > 0 ? (totalScore / evaluations.length).toFixed(1) : "0.0",
+    strong_topics: strongTopics,
+    topics_to_revise: topicsToRevise,
+    weak_topics: weakTopics,
+    study_recommendations: Array.isArray(recommendations) ? recommendations : [],
+  };
+}
+
 async function uploadNotes(file) {
   return mockUploadNotes(file);
 }
@@ -94,6 +188,10 @@ export default function Home() {
   const [selectedDifficulty, setSelectedDifficulty] = useState("medium");
   const [answerText, setAnswerText] = useState("");
   const [evaluationResult, setEvaluationResult] = useState(null);
+  const [sessionEvaluations, setSessionEvaluations] = useState([]);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const [reportCard, setReportCard] = useState(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [autoPlay, setAutoPlay] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [uploadError, setUploadError] = useState("");
@@ -158,6 +256,10 @@ export default function Home() {
     setIsCurrentQuestionFollowup(false);
     setAnswerText("");
     setEvaluationResult(null);
+    setSessionEvaluations([]);
+    setSessionEnded(false);
+    setReportCard(null);
+    setIsGeneratingSummary(false);
   }
 
   async function handleUpload() {
@@ -175,6 +277,10 @@ export default function Home() {
     setIsCurrentQuestionFollowup(false);
     setAnswerText("");
     setEvaluationResult(null);
+    setSessionEvaluations([]);
+    setSessionEnded(false);
+    setReportCard(null);
+    setIsGeneratingSummary(false);
 
     try {
       const result = await uploadNotes(selectedFile);
@@ -267,6 +373,16 @@ export default function Home() {
         questionResult.expected_concepts
       );
       setEvaluationResult(result);
+      setSessionEvaluations((previousEvaluations) => [
+        ...previousEvaluations,
+        {
+          question_text: questionResult.question_text,
+          topic: questionResult.topic.replace(" (follow-up)", ""),
+          student_answer: answerText,
+          score: result.score,
+          concepts_missed: result.concepts_missed,
+        },
+      ]);
 
       if (isCurrentQuestionFollowup) {
         setPendingFollowup(null);
@@ -287,6 +403,78 @@ export default function Home() {
       );
     } finally {
       setIsEvaluating(false);
+    }
+  }
+
+  async function handleEndSession() {
+    if (sessionEvaluations.length < 1 || isGeneratingSummary) {
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    setEvaluationError("");
+
+    const basicReportCard = buildReportCard(sessionEvaluations);
+
+    try {
+      const response = await generateSessionSummary(
+        sessionEvaluations,
+        basicReportCard.weak_topics,
+        basicReportCard.topics_to_revise
+      );
+
+      setReportCard(
+        buildReportCard(sessionEvaluations, response.recommendations)
+      );
+      setSessionEnded(true);
+    } catch (error) {
+      setEvaluationError(
+        error instanceof Error
+          ? error.message
+          : "Unable to generate the session summary."
+      );
+      setReportCard(basicReportCard);
+      setSessionEnded(true);
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  }
+
+  function handleStartNewSession() {
+    stopSpeaking();
+    setSessionEvaluations([]);
+    setSessionEnded(false);
+    setReportCard(null);
+    setSelectedFile(null);
+    setUploadResult(null);
+    setQuestionResult(null);
+    setAnswerText("");
+    setEvaluationResult(null);
+    setPendingFollowup(null);
+    setIsCurrentQuestionFollowup(false);
+    setUploadError("");
+    setQuestionError("");
+    setEvaluationError("");
+    setIsGeneratingSummary(false);
+    setIsRecording(false);
+    setIsTranscribing(false);
+    setRecordingSeconds(0);
+    audioChunksRef.current = [];
+
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+
+    mediaRecorderRef.current = null;
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
   }
 
@@ -425,26 +613,11 @@ export default function Home() {
     { label: "Medium", value: "medium" },
     { label: "Hard", value: "hard" },
   ];
-  const scoreCardStyles =
-    evaluationResult?.score != null
-      ? evaluationResult.score < 4
-        ? {
-            background: "#fef2f2",
-            border: "1px solid #fecaca",
-            color: "#b91c1c",
-          }
-        : evaluationResult.score < 8
-          ? {
-              background: "#fffbeb",
-              border: "1px solid #fde68a",
-              color: "#b45309",
-            }
-          : {
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              color: "#166534",
-            }
-      : null;
+  const scoreCardStyles = getScoreCardStyles(evaluationResult?.score);
+  const reportScoreStyles = getScoreCardStyles(
+    reportCard ? Number(reportCard.average_score) : null
+  );
+  const canEndSession = sessionEvaluations.length >= 1 && !isGeneratingSummary;
 
   return (
     <main
@@ -486,16 +659,235 @@ export default function Home() {
           </p>
         </header>
 
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dbe3f0",
-            borderRadius: 16,
-            padding: 24,
-            display: "grid",
-            gap: 16,
-          }}
-        >
+        {!sessionEnded && sessionEvaluations.length >= 1 ? (
+          <div
+            style={{
+              position: "fixed",
+              right: 24,
+              bottom: 24,
+              zIndex: 20,
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleEndSession}
+              disabled={!canEndSession}
+              style={{
+                padding: "10px 16px",
+                border: "none",
+                borderRadius: 999,
+                background: canEndSession ? "#ea580c" : "#fdba74",
+                color: "#ffffff",
+                fontWeight: 700,
+                boxShadow: "0 14px 28px rgba(234, 88, 12, 0.25)",
+                cursor: canEndSession ? "pointer" : "not-allowed",
+              }}
+            >
+              {isGeneratingSummary ? "Generating summary..." : "End session"}
+            </button>
+          </div>
+        ) : null}
+
+        {sessionEnded && reportCard ? (
+          <section
+            style={{
+              background: "#ffffff",
+              border: "1px solid #dbe3f0",
+              borderRadius: 16,
+              padding: 24,
+              display: "grid",
+              gap: 20,
+            }}
+          >
+            <div style={{ display: "grid", gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "#2563eb",
+                }}
+              >
+                Session Summary
+              </span>
+              <h2 style={{ margin: 0, fontSize: "2rem", lineHeight: 1.2 }}>
+                Session Summary
+              </h2>
+              <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>
+                Review your performance across the full practice session.
+              </p>
+            </div>
+
+            {evaluationError ? (
+              <div
+                style={{
+                  padding: 14,
+                  borderRadius: 10,
+                  background: "#fff7ed",
+                  border: "1px solid #fdba74",
+                  color: "#c2410c",
+                }}
+              >
+                {evaluationError}
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                display: "grid",
+                gap: 10,
+                padding: 24,
+                borderRadius: 16,
+                ...(reportScoreStyles ?? {
+                  background: "#f8fafc",
+                  border: "1px solid #dbe3f0",
+                  color: "#0f172a",
+                }),
+              }}
+            >
+              <strong style={{ fontSize: "3rem", lineHeight: 1 }}>
+                {reportCard.average_score}/10
+              </strong>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>
+                Questions answered: {reportCard.total_questions}
+              </span>
+            </div>
+
+            {reportCard.strong_topics.length > 0 ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                <span style={{ fontWeight: 700, color: "#166534" }}>
+                  Strong topics
+                </span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {reportCard.strong_topics.map((topic) => (
+                    <span
+                      key={topic}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 999,
+                        background: "#dcfce7",
+                        color: "#166534",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {topic}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {reportCard.topics_to_revise.length > 0 ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                <span style={{ fontWeight: 700, color: "#b45309" }}>
+                  Topics to revise
+                </span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {reportCard.topics_to_revise.map((topic) => (
+                    <span
+                      key={topic}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 999,
+                        background: "#fef3c7",
+                        color: "#b45309",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {topic}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {reportCard.weak_topics.length > 0 ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                <span style={{ fontWeight: 700, color: "#b91c1c" }}>
+                  Weak topics
+                </span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {reportCard.weak_topics.map((topic) => (
+                    <span
+                      key={topic}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 999,
+                        background: "#fee2e2",
+                        color: "#b91c1c",
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {topic}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {reportCard.study_recommendations.length > 0 ? (
+              <div
+                style={{
+                  display: "grid",
+                  gap: 10,
+                  padding: 18,
+                  borderRadius: 14,
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                }}
+              >
+                <span style={{ fontWeight: 700, color: "#1d4ed8" }}>
+                  AI Study Recommendations
+                </span>
+                <ul
+                  style={{
+                    margin: 0,
+                    paddingLeft: 20,
+                    color: "#1e3a8a",
+                    lineHeight: 1.7,
+                  }}
+                >
+                  {reportCard.study_recommendations.map((recommendation) => (
+                    <li key={recommendation}>{recommendation}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <div style={{ display: "flex", justifyContent: "flex-start" }}>
+              <button
+                type="button"
+                onClick={handleStartNewSession}
+                style={{
+                  padding: "12px 18px",
+                  border: "none",
+                  borderRadius: 10,
+                  background: "#2563eb",
+                  color: "#ffffff",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Start new session
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section
+              style={{
+                background: "#ffffff",
+                border: "1px solid #dbe3f0",
+                borderRadius: 16,
+                padding: 24,
+                display: "grid",
+                gap: 16,
+              }}
+            >
           <div style={{ display: "grid", gap: 6 }}>
             <span
               style={{
@@ -592,18 +984,18 @@ export default function Home() {
               </div>
             </div>
           ) : null}
-        </section>
+            </section>
 
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dbe3f0",
-            borderRadius: 16,
-            padding: 24,
-            display: "grid",
-            gap: 16,
-          }}
-        >
+            <section
+              style={{
+                background: "#ffffff",
+                border: "1px solid #dbe3f0",
+                borderRadius: 16,
+                padding: 24,
+                display: "grid",
+                gap: 16,
+              }}
+            >
           <div style={{ display: "grid", gap: 6 }}>
             <span
               style={{
@@ -858,18 +1250,18 @@ export default function Home() {
               </p>
             </div>
           ) : null}
-        </section>
+            </section>
 
-        <section
-          style={{
-            background: "#ffffff",
-            border: "1px solid #dbe3f0",
-            borderRadius: 16,
-            padding: 24,
-            display: "grid",
-            gap: 16,
-          }}
-        >
+            <section
+              style={{
+                background: "#ffffff",
+                border: "1px solid #dbe3f0",
+                borderRadius: 16,
+                padding: 24,
+                display: "grid",
+                gap: 16,
+              }}
+            >
           <div style={{ display: "grid", gap: 6 }}>
             <span
               style={{
@@ -1088,7 +1480,9 @@ export default function Home() {
               ) : null}
             </div>
           ) : null}
-        </section>
+            </section>
+          </>
+        )}
       </div>
     </main>
   );
