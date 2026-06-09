@@ -11,7 +11,14 @@ from faster_whisper import WhisperModel
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from schemas import EvaluateAnswerRequest, Evaluation, GenerateQuestionRequest, Question
+from schemas import (
+    EvaluateAnswerRequest,
+    Evaluation,
+    GenerateQuestionRequest,
+    Question,
+    SessionSummaryRequest,
+    StudyRecommendations,
+)
 
 _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
 
@@ -274,3 +281,44 @@ def transcribe_audio(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="No speech detected.")
 
     return {"transcription": transcription, "duration_seconds": info.duration}
+
+
+@app.post("/session-summary", response_model=StudyRecommendations)
+def session_summary(body: SessionSummaryRequest):
+    if not body.weak_topics and not body.topics_to_revise:
+        return {"recommendations": ["Excellent session — no specific areas need review. Try a harder difficulty next time."]}
+
+    all_missed = list(dict.fromkeys(
+        concept
+        for entry in body.evaluations
+        for concept in entry.concepts_missed
+    ))
+
+    system_prompt = (
+        "You are a helpful study coach. Given a list of viva exam topics the student needs to "
+        "revise (some weak, some moderate), generate 2-4 short, concrete, actionable study "
+        "recommendations. Each recommendation should be 1-2 sentences, specific (not vague like "
+        "'study more'), and directly address the topics. Prioritize the weak topics over the "
+        "topics_to_revise. Speak to the student in second person ('you should...', 'try practicing...')."
+    )
+    user_prompt = (
+        f"Weak topics (need urgent attention): {body.weak_topics}\n\n"
+        f"Topics to revise (moderate gaps): {body.topics_to_revise}\n\n"
+        f"Specific concepts the student missed across the session: {all_missed}\n\n"
+        "Generate 2-4 study recommendations as a JSON list."
+    )
+
+    try:
+        client = ollama.Client(timeout=60.0)
+        response = client.chat(
+            model="phi4-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            format=StudyRecommendations.model_json_schema(),
+            options={"temperature": 0.4},
+        )
+        return StudyRecommendations.model_validate_json(response.message.content)
+    except Exception:
+        raise HTTPException(status_code=502, detail="Ollama error during summary generation")

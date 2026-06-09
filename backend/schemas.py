@@ -31,3 +31,21 @@ class Evaluation(BaseModel):
     concepts_missed: list[str]
     needs_followup: bool
     followup_hint: str
+
+
+class SessionEvaluationEntry(BaseModel):
+    question_text: str
+    topic: str
+    student_answer: str
+    score: int = Field(ge=0, le=10)
+    concepts_missed: list[str]
+
+
+class SessionSummaryRequest(BaseModel):
+    evaluations: list[SessionEvaluationEntry]
+    weak_topics: list[str]
+    topics_to_revise: list[str]
+
+
+class StudyRecommendations(BaseModel):
+    recommendations: list[str] = Field(min_length=2, max_length=4)
