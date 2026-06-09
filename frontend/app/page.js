@@ -17,7 +17,7 @@ async function mockUploadNotes(file) {
   return response.json();
 }
 
-async function mockGenerateQuestion(session_id) {
+async function mockGenerateQuestion(session_id, difficulty) {
   const response = await fetch("http://localhost:8000/generate-question", {
     method: "POST",
     headers: {
@@ -25,7 +25,7 @@ async function mockGenerateQuestion(session_id) {
     },
     body: JSON.stringify({
       session_id: session_id,
-      difficulty: "easy",
+      difficulty,
     }),
   });
 
@@ -66,8 +66,8 @@ async function uploadNotes(file) {
   return mockUploadNotes(file);
 }
 
-async function generateQuestion(sessionId) {
-  return mockGenerateQuestion(sessionId);
+async function generateQuestion(sessionId, difficulty) {
+  return mockGenerateQuestion(sessionId, difficulty);
 }
 
 async function evaluateAnswer(
@@ -91,6 +91,7 @@ export default function Home() {
   const [pendingFollowup, setPendingFollowup] = useState(null);
   const [isCurrentQuestionFollowup, setIsCurrentQuestionFollowup] =
     useState(false);
+  const [selectedDifficulty, setSelectedDifficulty] = useState("medium");
   const [answerText, setAnswerText] = useState("");
   const [evaluationResult, setEvaluationResult] = useState(null);
   const [autoPlay, setAutoPlay] = useState(true);
@@ -229,7 +230,10 @@ export default function Home() {
     setEvaluationResult(null);
 
     try {
-      const result = await generateQuestion(uploadResult.session_id);
+      const result = await generateQuestion(
+        uploadResult.session_id,
+        selectedDifficulty
+      );
       setQuestionResult(result);
       setIsCurrentQuestionFollowup(false);
       if (autoPlay) {
@@ -416,6 +420,11 @@ export default function Home() {
     : pendingFollowup
       ? "linear-gradient(135deg, #7c3aed, #ea580c)"
       : "#0f766e";
+  const difficultyOptions = [
+    { label: "Easy", value: "easy" },
+    { label: "Medium", value: "medium" },
+    { label: "Hard", value: "hard" },
+  ];
   const scoreCardStyles =
     evaluationResult?.score != null
       ? evaluationResult.score < 4
@@ -685,6 +694,59 @@ export default function Home() {
                 ) : null}
               </div>
             </div>
+
+          {!pendingFollowup ? (
+            <div style={{ display: "grid", gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#475569",
+                }}
+              >
+                Difficulty
+              </span>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "stretch",
+                  padding: 4,
+                  borderRadius: 999,
+                  border: "1px solid #bfdbfe",
+                  background: "#eff6ff",
+                  width: "fit-content",
+                  gap: 4,
+                }}
+              >
+                {difficultyOptions.map((option) => {
+                  const isSelected = selectedDifficulty === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setSelectedDifficulty(option.value)}
+                      style={{
+                        padding: "10px 16px",
+                        borderRadius: 999,
+                        border: isSelected
+                          ? "1px solid #2563eb"
+                          : "1px solid #cbd5e1",
+                        background: isSelected ? "#2563eb" : "#ffffff",
+                        color: isSelected ? "#ffffff" : "#1e3a8a",
+                        fontWeight: isSelected ? 800 : 700,
+                        cursor: "pointer",
+                        transition:
+                          "background 0.2s ease, color 0.2s ease, border-color 0.2s ease",
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
             <button
